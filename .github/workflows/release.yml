@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-macos:
+    strategy:
+      matrix:
+        target:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          toolchain: stable
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: busy-me-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/busy-me
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-pc-windows-msvc
+          toolchain: stable
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: busy-me-x86_64-pc-windows-msvc
+          path: target/x86_64-pc-windows-msvc/release/busy-me.exe
+
+  create-release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: busy-me-*
+          path: artifacts
+          merge-multiple: true
+      - name: Rename binaries
+        run: |
+          mkdir dist
+          cp artifacts/busy-me dist/busy-me-aarch64-apple-darwin
+          cp artifacts/busy-me dist/busy-me-x86_64-apple-darwin || true
+          cp artifacts/busy-me.exe dist/busy-me-x86_64-pc-windows-msvc.exe || true
+          chmod +x dist/*
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }} (nightly)
+          body: |
+            ## busy-me ${{ github.ref_name }}
+
+            > ⚠️ **Nightly build** — may contain rough edges.
+
+            Automated build from tag `${{ github.ref_name }}`.
+
+            | Platform | Binary |
+            |----------|--------|
+            | macOS Apple Silicon | `busy-me-aarch64-apple-darwin` |
+            | macOS Intel | `busy-me-x86_64-apple-darwin` |
+            | Windows x64 | `busy-me-x86_64-pc-windows-msvc.exe` |
+          prerelease: true
+          files: dist/*
