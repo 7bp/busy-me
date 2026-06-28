@@ -1,0 +1,24 @@
+rescan:
+  name: Rescan
+  description: Re-scan USB bus for connected busy lights and update entities.
+  fields: {}
+
+set_effect:
+  name: Set effect
+  description: Set a hardware effect on the light.
+  target:
+    entity:
+      integration: busy_me_ha
+      domain: light
+  fields:
+    effect:
+      description: Effect to apply (blink, dim, sleep, none)
+      example: blink
+      required: true
+      selector:
+        select:
+          options:
+            - "none"
+            - "blink"
+            - "dim"
+            - "sleep"
