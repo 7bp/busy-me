@@ -9,6 +9,12 @@ pub struct Config {
     pub busy_color: [u8; 3],
     pub free_color: [u8; 3],
     pub speaker_color: [u8; 3],
+    pub webhook_enabled: bool,
+    pub webhook_url_free: String,
+    pub webhook_url_speaker: String,
+    pub webhook_url_busy: String,
+    pub webhook_url_calmdown: String,
+    pub calmdown_secs: u64,
 }
 
 impl Default for Config {
@@ -19,6 +25,12 @@ impl Default for Config {
             busy_color: [255, 40, 40],
             free_color: [40, 230, 40],
             speaker_color: [255, 160, 40],
+            webhook_enabled: false,
+            webhook_url_free: "http://homeassistant.local:8123/api/webhook/busy_me_free".into(),
+            webhook_url_speaker: "http://homeassistant.local:8123/api/webhook/busy_me_speaker".into(),
+            webhook_url_busy: "http://homeassistant.local:8123/api/webhook/busy_me_busy".into(),
+            webhook_url_calmdown: "http://homeassistant.local:8123/api/webhook/busy_me_calmdown".into(),
+            calmdown_secs: 300,
         }
     }
 }

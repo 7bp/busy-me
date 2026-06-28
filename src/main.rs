@@ -2,6 +2,7 @@ mod audio_monitor;
 mod busylight;
 mod config;
 mod icons;
+mod webhook;
 
 use audio_monitor::AudioState;
 use config::Config;
@@ -23,6 +24,8 @@ struct App {
     busylight: busylight::Controller,
     last_tick: Instant,
     enable_item: CheckMenuItem,
+    webhook_item: CheckMenuItem,
+    webhook_enabled: Arc<AtomicBool>,
     status_item: MenuItem,
     quit_item: MenuItem,
     // Color preset check items
@@ -40,6 +43,12 @@ struct App {
     poll_1000: CheckMenuItem,
     poll_2000: CheckMenuItem,
     poll_3000: CheckMenuItem,
+    // Calmdown items
+    calm_off: CheckMenuItem,
+    calm_1m: CheckMenuItem,
+    calm_5m: CheckMenuItem,
+    calm_15m: CheckMenuItem,
+    calm_30m: CheckMenuItem,
 }
 
 fn main() {
@@ -52,6 +61,7 @@ fn main() {
     let config = Config::load();
     let running = Arc::new(AtomicBool::new(true));
     let (audio_tx, audio_rx): (Sender<AudioState>, Receiver<AudioState>) = unbounded();
+    let (webhook_tx, webhook_rx): (Sender<AudioState>, Receiver<AudioState>) = unbounded();
 
     // Icons
     let mut free_icon = create_icon(config.free_color);
@@ -59,7 +69,14 @@ fn main() {
     let mut speaker_icon = create_icon(config.speaker_color);
 
     // Event loop
-    let event_loop = EventLoopBuilder::new().build();
+    let mut event_loop = EventLoopBuilder::new().build();
+
+    #[cfg(target_os = "macos")]
+    {
+        use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
+    }
+
     let _window = WindowBuilder::new()
         .with_title("Busy Me")
         .with_visible(false)
@@ -98,6 +115,18 @@ fn main() {
     let poll_3000 = CheckMenuItem::new("3s", true, config.poll_interval_ms == 3000, None);
     let poll_sub = Submenu::with_items("Poll Interval", true, &[&poll_500, &poll_1000, &poll_2000, &poll_3000]).unwrap();
 
+    let webhook_item = CheckMenuItem::new("Webhook → HA", true, config.webhook_enabled, None);
+
+    // Calmdown timeout presets
+    let calm_off = CheckMenuItem::new("Off", true, config.calmdown_secs == 0, None);
+    let calm_1m = CheckMenuItem::new("1 min", true, config.calmdown_secs == 60, None);
+    let calm_5m = CheckMenuItem::new("5 min", true, config.calmdown_secs == 300, None);
+    let calm_15m = CheckMenuItem::new("15 min", true, config.calmdown_secs == 900, None);
+    let calm_30m = CheckMenuItem::new("30 min", true, config.calmdown_secs == 1800, None);
+    let calm_sub = Submenu::with_items("Calmdown Timer", true,
+        &[&calm_off, &calm_1m, &calm_5m, &calm_15m, &calm_30m]).unwrap();
+
+    let open_config_item = MenuItem::new("Open Config File...", true, None);
     let sep2 = PredefinedMenuItem::separator();
     let status_item = MenuItem::new("Status: waiting...", false, None);
     let sep3 = PredefinedMenuItem::separator();
@@ -108,6 +137,9 @@ fn main() {
     menu.append(&sep1).unwrap();
     menu.append(&colors_sub).unwrap();
     menu.append(&poll_sub).unwrap();
+    menu.append(&webhook_item).unwrap();
+    menu.append(&calm_sub).unwrap();
+    menu.append(&open_config_item).unwrap();
     menu.append(&sep2).unwrap();
     menu.append(&status_item).unwrap();
     menu.append(&sep3).unwrap();
@@ -124,6 +156,19 @@ fn main() {
     // ── Audio monitor thread ──
     let monitor_config = config.clone();
     audio_monitor::start_monitor(Arc::new(monitor_config), Arc::clone(&running), audio_tx);
+
+    // ── Webhook thread ──
+    let webhook_enabled = Arc::new(AtomicBool::new(config.webhook_enabled));
+    webhook::start_webhook(
+        Arc::from(config.webhook_url_free.clone()),
+        Arc::from(config.webhook_url_speaker.clone()),
+        Arc::from(config.webhook_url_busy.clone()),
+        Arc::from(config.webhook_url_calmdown.clone()),
+        Arc::clone(&webhook_enabled),
+        config.calmdown_secs,
+        webhook_rx,
+        Arc::clone(&running),
+    );
 
     // ── Busylight ──
     let mut busylight = busylight::Controller::new();
@@ -142,6 +187,8 @@ fn main() {
         busylight,
         last_tick,
         enable_item,
+        webhook_item,
+        webhook_enabled,
         status_item,
         quit_item,
         busy_red,
@@ -157,6 +204,11 @@ fn main() {
         poll_1000,
         poll_2000,
         poll_3000,
+        calm_off,
+        calm_1m,
+        calm_5m,
+        calm_15m,
+        calm_30m,
     };
 
     let menu_channel = MenuEvent::receiver();
@@ -172,6 +224,8 @@ fn main() {
                         continue;
                     }
                     app.current_state = state;
+                    // Forward to webhook thread (debounced)
+                    let _ = webhook_tx.send(state);
 
                     let (icon, tip) = match state {
                         AudioState::Free => (&free_icon, "🟢 Free"),
@@ -202,6 +256,30 @@ fn main() {
                     if id == app.enable_item.id() {
                         app.config.enabled = app.enable_item.is_checked();
                         app.config.save();
+                        continue;
+                    }
+
+                    if id == app.webhook_item.id() {
+                        let enabled = app.webhook_item.is_checked();
+                        app.webhook_enabled.store(enabled, Ordering::Relaxed);
+                        app.config.webhook_enabled = enabled;
+                        if enabled {
+                            info!("Webhooks enabled — free → {}  speaker → {}  busy → {}",
+                                  app.config.webhook_url_free,
+                                  app.config.webhook_url_speaker,
+                                  app.config.webhook_url_busy);
+                        }
+                        app.config.save();
+                        continue;
+                    }
+
+                    if id == open_config_item.id() {
+                        let path = Config::path();
+                        info!("Opening config: {}", path.display());
+                        #[cfg(target_os = "macos")]
+                        std::process::Command::new("open").arg(&path).spawn().ok();
+                        #[cfg(target_os = "windows")]
+                        std::process::Command::new("cmd").args(["/c", "start", "", &path]).spawn().ok();
                         continue;
                     }
 
@@ -264,6 +342,23 @@ fn main() {
                                 else if id == app.poll_1000.id() { 1000 }
                                 else if id == app.poll_2000.id() { 2000 }
                                 else { 3000 };
+                            app.config.save();
+                            break;
+                        }
+                    }
+
+                    // Calmdown timeout
+                    let calm_items = [&app.calm_off, &app.calm_1m, &app.calm_5m, &app.calm_15m, &app.calm_30m];
+                    for item in &calm_items {
+                        if id == item.id() {
+                            for other in &calm_items {
+                                other.set_checked(other.id() == id);
+                            }
+                            app.config.calmdown_secs = if id == app.calm_off.id() { 0 }
+                                else if id == app.calm_1m.id() { 60 }
+                                else if id == app.calm_5m.id() { 300 }
+                                else if id == app.calm_15m.id() { 900 }
+                                else { 1800 };
                             app.config.save();
                             break;
                         }

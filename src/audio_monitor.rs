@@ -18,6 +18,7 @@ pub fn start_monitor(
 ) {
     thread::spawn(move || {
         let mut last_state = AudioState::Free;
+        let mut first = true;
 
         while running.load(Ordering::Relaxed) {
             if config.enabled {
@@ -33,7 +34,8 @@ pub fn start_monitor(
                     AudioState::Free
                 };
 
-                if state != last_state {
+                if first || state != last_state {
+                    first = false;
                     last_state = state;
                     let _ = tx.send(state);
                 }

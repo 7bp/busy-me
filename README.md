@@ -99,14 +99,37 @@ cargo run
 # Release
 cargo build --release
 
-# macOS .app bundle
-make bundle-darwin
+# macOS .app bundle + DMG (drag-to-Applications installer)
+make dmg
+# Opens target/aarch64-apple-darwin/release/Busy Me.dmg
 
 # Cross-compile (requires appropriate toolchains)
 make build-darwin-arm64    # Apple Silicon
 make build-darwin-x64      # Intel Mac
 make build-windows-x64     # Windows
 ```
+
+## Webhook → Home Assistant
+
+Toggle **Webhook → HA** in the tray menu to send state changes as HTTP POSTs to a Home Assistant webhook. Configure the URL in `config.json`:
+
+```json
+{
+  "webhook_enabled": true,
+  "webhook_url_free": "http://homeassistant.local:8123/api/webhook/busy_me_free",
+  "webhook_url_speaker": "http://homeassistant.local:8123/api/webhook/busy_me_speaker",
+  "webhook_url_busy": "http://homeassistant.local:8123/api/webhook/busy_me_busy"
+}
+```
+
+Each state fires its own webhook URL so you can create three separate HA automations, one per state. The POST is empty — the URL itself identifies the state.
+
+**Setup in HA:**
+1. Go to **Settings → Automations → Create Automation → Webhook**
+2. Create three automations, one for each webhook ID (`busy_me_free`, `busy_me_speaker`, `busy_me_busy`)
+3. Add actions to each — flash lights red when busy, play a chime when free, etc.
+
+The webhook thread debounces rapid flapping (2-second stability window) so you only get clean state transitions.
 
 ## License
 
