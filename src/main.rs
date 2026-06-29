@@ -255,16 +255,24 @@ fn main() {
                     // Forward to webhook thread (debounced)
                     let _ = webhook_tx.send(state);
 
-                    let (icon, tip) = match state {
+                    let (icon, label) = match state {
                         AudioState::Free => (&free_icon, "🟢 Free"),
                         AudioState::SpeakerActive => (&speaker_icon, "🟠 Speaker Active"),
                         AudioState::Busy => (&busy_icon, "🔴 Mic or Camera Active"),
                     };
                     tray.set_icon(Some(icon.clone()))
                         .unwrap_or_else(|e| error!("icon: {}", e));
-                    tray.set_tooltip(Some(tip))
+
+                    // Query active app names (fast on both platforms)
+                    let apps = audio_monitor::get_active_apps();
+                    let tip = if apps.is_empty() {
+                        label.to_string()
+                    } else {
+                        format!("{}\n📱 {}", label, apps.join(", "))
+                    };
+                    tray.set_tooltip(Some(&tip))
                         .unwrap_or_else(|e| error!("tooltip: {}", e));
-                    app.status_item.set_text(format!("Status: {}", tip));
+                    app.status_item.set_text(format!("Status: {}", label));
 
                     if app.busylight.is_connected() {
                         let (r, g, b) = match state {

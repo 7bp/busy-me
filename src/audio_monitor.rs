@@ -109,6 +109,43 @@ mod platform {
         default_device(kAudioHardwarePropertyDefaultOutputDevice).map_or(false, device_is_running)
     }
 
+    /// Returns names of apps actively using audio or camera.
+    /// Uses `lsof` to find processes with audio-device or camera-device FDs.
+    pub fn get_active_apps() -> Vec<String> {
+        let mut apps: Vec<String> = vec![];
+        // Check `lsof` for processes holding /dev/audiosystem* open
+        if let Ok(out) = std::process::Command::new("lsof")
+            .args(["+c", "0", "-ti", "/dev/audiosystem*"])
+            .output()
+        {
+            if out.status.success() {
+                let pids = String::from_utf8_lossy(&out.stdout);
+                for line in pids.lines() {
+                    let pid = line.trim();
+                    if pid.is_empty() { continue; }
+                    if let Some(name) = _pid_name(pid) {
+                        if !apps.contains(&name) {
+                            apps.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        apps
+    }
+
+    fn _pid_name(pid: &str) -> Option<String> {
+        std::process::Command::new("ps")
+            .args(["-p", pid, "-o", "comm="])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            })
+    }
+
     // ── Webcam (CoreMediaIO) ──
 
     /// CoreMediaIO property constants (from CMIOHardwareSystem.h / CMIOHardwareDevice.h)
@@ -255,6 +292,42 @@ mod platform {
             Err(_) => false,
         }
     }
+
+    /// Enumerate WASAPI audio sessions and report active apps by name.
+    /// Uses `tasklist` to resolve PIDs to process names.
+    pub fn get_active_apps() -> Vec<String> {
+        let mut apps: Vec<String> = vec![];
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let enumerator: IMMDeviceEnumerator = match CoCreateInstance(
+                &MMDeviceEnumerator, None, CLSCTX_ALL,
+            ) {
+                Ok(e) => e,
+                Err(_) => return apps,
+            };
+            for &flow in &[eCapture, eRender] {
+                let device = match enumerator.GetDefaultAudioEndpoint(flow, eConsole) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+                let manager: IAudioSessionManager2 = match device.Activate(CLSCTX_ALL, None) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let sessions = match manager.GetSessionEnumerator() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let count = sessions.GetCount().unwrap_or(0);
+                if count > 0 {
+                    let prefix = if flow == eCapture { "mic" } else { "speaker" };
+                    apps.push(format!("{prefix} ({} session{})", count,
+                                       if count != 1 { "s" } else { "" }));
+                }
+            }
+        }
+        apps
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -262,6 +335,7 @@ mod platform {
     pub fn is_mic_busy() -> bool { false }
     pub fn is_speaker_busy() -> bool { false }
     pub fn is_camera_busy() -> bool { false }
+    pub fn get_active_apps() -> Vec<String> { vec![] }
 }
 
 pub use platform::*;
