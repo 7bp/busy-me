@@ -2,6 +2,7 @@ mod audio_monitor;
 mod busylight;
 mod config;
 mod icons;
+mod sleep_monitor;
 mod webhook;
 
 use audio_monitor::AudioState;
@@ -76,6 +77,10 @@ fn main() {
         use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
         event_loop.set_activation_policy(ActivationPolicy::Accessory);
     }
+
+    // Register for macOS sleep notification (fires calmdown before suspend)
+    let calmd_url = config.webhook_url_calmdown.clone();
+    sleep_monitor::register(calmd_url);
 
     let _window = WindowBuilder::new()
         .with_title("Busy Me")
