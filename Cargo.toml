@@ -31,6 +31,7 @@ version = "0.58"
 features = [
     "Devices_Enumeration",
     "Media_Capture",
+    "Win32_Foundation",
     "Win32_Media_Audio",
     "Win32_Devices_Properties",
     "Win32_System_Com",

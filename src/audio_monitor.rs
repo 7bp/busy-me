@@ -293,36 +293,30 @@ mod platform {
         }
     }
 
-    /// Enumerate WASAPI audio sessions and report active apps by name.
-    /// Uses `tasklist` to resolve PIDs to process names.
+    /// Find running processes that are likely using audio (by known filenames).
+    /// Uses `tasklist` to filter for common communication / media apps.
+    /// Returns the process names of any that are currently running.
     pub fn get_active_apps() -> Vec<String> {
+        // Common apps that use mic / speakers
+        const KNOWN: &[&str] = &[
+            "zoom.exe", "teams.exe", "slack.exe", "discord.exe",
+            "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe",
+            "spotify.exe", "wmplayer.exe", "vlc.exe",
+            "obs64.exe", "obs32.exe",
+            "skype.exe", "webex.exe", "outlook.exe",
+            "PhoneLink.exe", "PhoneExperienceHost.exe",
+        ];
         let mut apps: Vec<String> = vec![];
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let enumerator: IMMDeviceEnumerator = match CoCreateInstance(
-                &MMDeviceEnumerator, None, CLSCTX_ALL,
-            ) {
-                Ok(e) => e,
-                Err(_) => return apps,
-            };
-            for &flow in &[eCapture, eRender] {
-                let device = match enumerator.GetDefaultAudioEndpoint(flow, eConsole) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                };
-                let manager: IAudioSessionManager2 = match device.Activate(CLSCTX_ALL, None) {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-                let sessions = match manager.GetSessionEnumerator() {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-                let count = sessions.GetCount().unwrap_or(0);
-                if count > 0 {
-                    let prefix = if flow == eCapture { "mic" } else { "speaker" };
-                    apps.push(format!("{prefix} ({} session{})", count,
-                                       if count != 1 { "s" } else { "" }));
+        for name in KNOWN {
+            if let Ok(out) = std::process::Command::new("tasklist")
+                .args(["/NH", "/FI", &format!("IMAGENAME eq {}", name)])
+                .output()
+            {
+                let s = String::from_utf8_lossy(&out.stdout);
+                // tasklist outputs the image name if found, or "INFO: No
+                // tasks are running" if not.
+                if !s.contains("INFO: No tasks") && !s.trim().is_empty() {
+                    apps.push(name.trim_end_matches(".exe").to_string());
                 }
             }
         }
