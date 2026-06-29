@@ -267,7 +267,23 @@ mod platform {
                 Err(_) => return 0,
             };
 
-            sessions.GetCount().unwrap_or(0)
+            let total = sessions.GetCount().unwrap_or(0);
+            if total == 0 {
+                return 0;
+            }
+
+            // Count only sessions in the Active state (actively streaming)
+            let mut active = 0;
+            for i in 0..total {
+                if let Ok(ctrl) = sessions.GetSession(i) {
+                    if let Ok(state) = ctrl.GetState() {
+                        if state == AudioSessionStateActive {
+                            active += 1;
+                        }
+                    }
+                }
+            }
+            active
         }
     }
 
