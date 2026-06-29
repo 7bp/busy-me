@@ -1,3 +1,7 @@
+// The objc crate's macros use internal `cfg(cargo-clippy)` checks that
+// trigger `unexpected_cfgs` on recent Rust.  This is harmless.
+#![allow(unexpected_cfgs)]
+
 /// Registers a handler for macOS sleep notifications via NSWorkspace.
 /// Fires the calmdown webhook *before* the system suspends, while the
 /// network stack is still operational.
