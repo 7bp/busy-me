@@ -1,6 +1,7 @@
 /// Registers a handler for macOS sleep notifications via NSWorkspace.
 /// Fires the calmdown webhook *before* the system suspends, while the
 /// network stack is still operational.
+#[cfg(target_os = "macos")]
 use log::info;
 
 #[cfg(target_os = "macos")]

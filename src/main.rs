@@ -70,6 +70,7 @@ fn main() {
     let mut speaker_icon = create_icon(config.speaker_color);
 
     // Event loop
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut event_loop = EventLoopBuilder::new().build();
 
     #[cfg(target_os = "macos")]
