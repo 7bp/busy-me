@@ -11,7 +11,7 @@ use icons::create_icon;
 use log::{error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::window::WindowBuilder;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
@@ -170,6 +170,28 @@ fn main() {
         Arc::clone(&running),
     );
 
+    // ── Sleep detection (dedicated thread, wall-clock) ──
+    {
+        let running = Arc::clone(&running);
+        let wh_enabled = Arc::clone(&webhook_enabled);
+        let url = config.webhook_url_calmdown.clone();
+        std::thread::spawn(move || {
+            let mut last = SystemTime::now();
+            while running.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_secs(1));
+                let now = SystemTime::now();
+                if let Ok(elapsed) = now.duration_since(last) {
+                    if elapsed > Duration::from_secs(5)
+                        && wh_enabled.load(Ordering::Relaxed)
+                    {
+                        webhook::fire_calmdown(&url);
+                    }
+                }
+                last = now;
+            }
+        });
+    }
+
     // ── Busylight ──
     let mut busylight = busylight::Controller::new();
     // Set initial color so the light reflects the current state immediately
@@ -279,7 +301,9 @@ fn main() {
                         #[cfg(target_os = "macos")]
                         std::process::Command::new("open").arg(&path).spawn().ok();
                         #[cfg(target_os = "windows")]
-                        std::process::Command::new("cmd").args(["/c", "start", "", &path]).spawn().ok();
+                        if let Some(s) = path.to_str() {
+                            std::process::Command::new("cmd").args(["/c", "start", "", s]).spawn().ok();
+                        }
                         continue;
                     }
 
@@ -372,7 +396,19 @@ fn main() {
                     app.last_tick = now;
                 }
             }
+            tao::event::Event::Suspended => {
+                info!("System suspending — firing calmdown webhook");
+                if app.config.webhook_enabled && app.config.calmdown_secs > 0 {
+                    webhook::fire_calmdown(&app.config.webhook_url_calmdown);
+                }
+            }
+            tao::event::Event::Resumed => {
+                info!("System resumed from sleep");
+            }
             tao::event::Event::LoopDestroyed => {
+                if app.config.webhook_enabled && app.config.calmdown_secs > 0 {
+                    webhook::fire_calmdown(&app.config.webhook_url_calmdown);
+                }
                 app.running.store(false, Ordering::Relaxed);
                 app.busylight.off();
             }

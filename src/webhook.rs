@@ -79,6 +79,19 @@ fn pick_url<'a>(free: &'a str, speaker: &'a str, busy: &'a str, state: AudioStat
     }
 }
 
+/// Fire a one-shot calmdown to the given URL (called on quit / sleep).
+pub fn fire_calmdown(url: &str) {
+    info!("Calmdown (one-shot) → {url}");
+    match ureq::post(url).send_empty() {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                info!("Calmdown OK");
+            }
+        }
+        Err(_) => {} // best-effort
+    }
+}
+
 fn send(url: &str, state: AudioState) {
     let label = match state {
         AudioState::Free => "free",

@@ -131,6 +131,10 @@ Each state fires its own webhook URL so you can create three separate HA automat
 
 The webhook thread debounces rapid flapping (2-second stability window) so you only get clean state transitions.
 
+**Calmdown** — when Free has been stable for the configured timeout (default 5 min), fires `webhook_url_calmdown`. The calmdown also fires on:
+- **App quit** — sent synchronously in `LoopDestroyed`
+- **System sleep** — dedicated background thread checks wall-clock every 1 s; if the clock jumped more than 5 s the system must have slept, fires calmdown on wake
+
 ## License
 
 Apache-2.0
