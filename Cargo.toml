@@ -37,6 +37,9 @@ features = [
     "Foundation",
 ]
 
+[lints.rust]
+unexpected_cfgs = "allow"
+
 [profile.release]
 opt-level = "z"
 lto = true
